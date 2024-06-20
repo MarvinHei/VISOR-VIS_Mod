@@ -98,7 +98,7 @@ def generate_masks_for_image(image_name, image_path, side, type, masks_info, out
         in_contact_objects = []
         for entity in entities:
             if side + ' hand' in entity['name'] and 'in_contact_object' in entity.keys():
-                if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact':
+                if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact' and entity['in_contact_object'] != 'none-of-the-above':
                     image_valid = True
                     in_contact_objects.append(entity['in_contact_object'])
         if not image_valid: 
@@ -137,7 +137,7 @@ def generate_masks_for_image(image_name, image_path, side, type, masks_info, out
         image_valid = False
         for entity in entities:
             if 'hand' in entity['name'] and 'in_contact_object' in entity.keys():
-                if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact':
+                if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact' and entity['in_contact_object'] != 'none-of-the-above':
                     image_valid = True
         if not image_valid:
             return
