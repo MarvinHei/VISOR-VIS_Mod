@@ -14,55 +14,169 @@ from PIL import Image
 from scipy.stats import norm
 from numpy import asarray
 
-def generate_masks_for_image(image_name, image_path, masks_info, output_directory,object_keys=None,is_overlay=False, images_root_directory= '.', input_resolution=(1920,1080), output_resolution=(1920,1080)):
+def rename_file(filename):
+    parts = filename.split("_")
+    
+    # Search for the split string with at least three "0"
+    for i, part in enumerate(parts):
+        if part.count("0") >= 3:
 
-    non_empty_objects = []
+            # Remove three "0" from the string
+            new_part = part.replace("0", "", 3)
 
-    img = np.zeros([input_resolution[1],input_resolution[0]],dtype=np.uint8)
-    ###masks_info = sorted(masks_info, key=lambda k: k['name'])
-    index = 1
-    #if (image_path == 'P30_107/Part_008/P30_107_seq_00072/frame_0000038529/frame_0000038529.jpg'): #'P30_107/Part_008/P30_107_seq_00067/frame_0000037246/frame_0000037246.jpg'
+            # Merge parts back into filename
+            new_filename = new_part
+            return new_filename
 
-    entities = masks_info
-    i = 1
+
+def extract_bimanual_information(image_path, image_name, entities):
+    is_bimanual = False
+    is_left = False
+    is_right = False
+    is_symmetric = False
+    left_obj = None
+    right_obj = None
+    contact_obj_left = None
+    contact_obj_right = None
     for entity in entities:
-        object_annotations = entity["segments"]
-        polygons = []
-        polygons.append(object_annotations)
-        non_empty_objects.append(entity["name"])
-        ps = []
-        for polygon in polygons:
-            for poly in polygon:
-                if poly == []:
-                    poly = [[0.0, 0.0]]
-                ps.append(np.array(poly, dtype=np.int32))
-        if object_keys:
-            if (entity['name'] in object_keys.keys()):
-                #print(ps)
-                #print(entity['name'])
-                #print(object_keys[entity['name']])
-                cv2.fillPoly(img, ps, (object_keys[entity['name']], object_keys[entity['name']], object_keys[entity['name']]))
-                #cv2.polylines(img, ps, True, (255,255,255), thickness=1)
+        if entity['name'] == 'left hand' and 'in_contact_object' in entity.keys():
+            if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact' and entity['in_contact_object'] != 'none-of-the-above':
+                is_left = True
+                contact_obj_left = entity['in_contact_object']
+        if entity['name'] == 'right hand' and 'in_contact_object' in entity.keys():
+            if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact' and entity['in_contact_object'] != 'none-of-the-above':
+                is_right = True
+                contact_obj_right = entity['in_contact_object']
+        if is_left and is_right:
+            is_bimanual = True
+            if contact_obj_right == contact_obj_left:
+                is_symmetric = True
+    
+    if not is_left and not is_right:
+        return
+
+    for entity in entities:
+        if entity['id'] == contact_obj_left:
+            left_obj = entity['name']
+        if entity['id'] == contact_obj_right:
+            right_obj = entity['name']
+    
+    txt_path = os.path.join("../EPIC_DATA/bimanual_annotations", image_path.split('/')[0])
+    if not os.path.exists(txt_path):
+        os.makedirs(txt_path)
+    filename = image_name.split('.')[0]
+    filename = rename_file(filename)
+    txt_filename = os.path.join(txt_path, filename + '.txt')
+    with open(txt_filename, 'w') as file:
+        if is_bimanual:
+            file.write("bimanual \n")
+            if is_symmetric:
+                file.write("symmetric \n")
+            else:
+                file.write("asymmetric \n")
+            file.write(left_obj + "\n")
+            file.write(right_obj + "\n")
+        elif is_left:
+            file.write("left \n")
+            file.write(left_obj + "\n")
         else:
+            file.write("right \n")
+            file.write(right_obj + "\n")
+        file.close()
+
+
+def generate_masks_for_image(image_name, image_path, side, type, masks_info, output_directory,object_keys=None,is_overlay=False, images_root_directory= '.', input_resolution=(1920,1080), output_resolution=(1920,1080)):
+
+    extract_bimanual_information(image_path, image_name, masks_info)
+       
+    non_empty_objects = []
+    img = np.zeros([input_resolution[1],input_resolution[0]],dtype=np.uint8)
+    entities = masks_info
+
+    if type == 'object':
+        image_valid = False
+        in_contact_objects = []
+        for entity in entities:
+            if side + ' hand' in entity['name'] and 'in_contact_object' in entity.keys():
+                if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact':
+                    image_valid = True
+                    in_contact_objects.append(entity['in_contact_object'])
+        if not image_valid: 
+            return
+        i = 1
+        if len(in_contact_objects) > 1:
+            return
+        for entity in entities:
+            if entity['id'] not in in_contact_objects:
+                continue
+
+            object_annotations = entity["segments"]
+            polygons = []
+            polygons.append(object_annotations)
+            non_empty_objects.append(entity["name"])
+            ps = []
+            for polygon in polygons:
+                for poly in polygon:
+                    if poly == []:
+                        poly = [[0.0, 0.0]]
+                    ps.append(np.array(poly, dtype=np.int32))
             cv2.fillPoly(img, ps, (i, i, i))
-        i += 1
-        #visualize(img)
-        #if (not np.all(img == 0)):  # image_path.__contains__("P03_120_seq_00064")
+            i += 1
+            #cv2.fillPoly(img, ps, (255, 255, 255))
+        txt_path = os.path.join("../EPIC_DATA/text_annotations", image_path.split('/')[0], side)
+        if not os.path.exists(txt_path):
+            os.makedirs(txt_path)
+        filename = image_name.split('.')[0]
+        filename = rename_file(filename)
+        txt_filename = os.path.join(txt_path, filename + '.txt')
+        with open(txt_filename, "w") as file:
+            for name in non_empty_objects:
+                file.write(name + "\n")
+            file.close()
+    elif type == 'hand':
+        image_valid = False
+        for entity in entities:
+            if 'hand' in entity['name'] and 'in_contact_object' in entity.keys():
+                if entity['in_contact_object'] != 'inconclusive' and entity['in_contact_object'] != 'hand-not-in-contact':
+                    image_valid = True
+        if not image_valid:
+            return
+        i = 1
+        for entity in entities:
+            object_annotations = entity["segments"]
+            polygons = []
+            polygons.append(object_annotations)
+            non_empty_objects.append(entity["name"])
+            ps = []
+            for polygon in polygons:
+                for poly in polygon:
+                    if poly == []:
+                        poly = [[0.0, 0.0]]
+                    ps.append(np.array(poly, dtype=np.int32))
+            if object_keys:
+                if side == 'both' and 'hand' in entity['name']:
+                        cv2.fillPoly(img, ps, (i, i, i))
+                        i += 1
+                        #cv2.fillPoly(img, ps, (255, 255, 255)) # white
+                elif side + ' hand' in entity['name']  and 'in_contact_object' in entity.keys():
+                    if entity['in_contact_object'] != 'hand-not-in-contact':
+                        cv2.fillPoly(img, ps, (i, i, i))
+                        i += 1
+                        #cv2.fillPoly(img, ps, (255, 255, 255)) 
+
     image_name = image_name.replace("jpg", "png")
     if (not np.all(img == 0)):
         image_name = image_name.replace("jpg", "png")
-        #print(output_directory + image_name)
-        # cv2.imwrite(output_directory+image_name,img)
         image_data = asarray(img)
         if (input_resolution != output_resolution):
             out_image = cv2.resize(image_data, (output_resolution[0],
                                         output_resolution[1]),
-                                 interpolation=cv2.INTER_NEAREST)
+                                interpolation=cv2.INTER_NEAREST)
             out_image = (np.array(out_image)).astype('uint8')
         else:
             out_image = image_data
             
-        imwrite_indexed_2(os.path.join(output_directory,image_name), out_image)
+        imwrite_indexed_2(os.path.join(output_directory, image_name), out_image)
         
         if is_overlay:
             image1 = image_name.replace("png", "jpg")
@@ -77,18 +191,10 @@ def generate_masks_for_image(image_name, image_path, masks_info, output_director
     
             a = overlay_semantic_mask(image1_overlay, out_image, colors=davis_palette, alpha=0.2, contour_thickness=1)
             img2 = Image.fromarray(a, 'RGB')
-            img2.save(os.path.join(output_directory,image_name))
+            img2.save(os.path.join(output_directory, type, side, image_name))
+            
 
-    	
-
-    
-    #imwrite_indexed(output_directory + image_name, img,non_empty_objects)
-    
-
-
-
-
-def folder_of_jsons_to_masks(json_files_path,output_directory,is_overlay=False, rgb_frames= '.', output_resolution=(1920,1080),generate_video=True):
+def folder_of_jsons_to_masks(json_files_path,output_directory, side, type, is_overlay=False, rgb_frames= '.', output_resolution=(1920,1080),generate_video=True):
 
     
     if os.path.exists(os.path.join(output_directory,'data_mapping.csv')):
@@ -101,7 +207,7 @@ def folder_of_jsons_to_masks(json_files_path,output_directory,is_overlay=False, 
         else:
             input_resolution =(1920,1080)
             frame_rate = 3
-        objects_keys = json_to_masks_new(json_file,output_directory,is_overlay=is_overlay, images_root_directory=rgb_frames,input_resolution=input_resolution, output_resolution=output_resolution)
+        objects_keys = json_to_masks_new(json_file,output_directory, side, type, is_overlay=is_overlay, images_root_directory=rgb_frames,input_resolution=input_resolution, output_resolution=output_resolution)
         if generate_video:
             generate_video_from_images(os.path.join(output_directory,'_'.join(os.path.basename(json_file).split('.')[0].split('_')[:2])), frame_rate)
         data = pd.DataFrame(objects_keys.items(), columns=['object_name', 'unique_index'])
@@ -116,7 +222,7 @@ def folder_of_jsons_to_masks(json_files_path,output_directory,is_overlay=False, 
 
 
 
-def json_to_masks_new(filename,output_directory,is_overlay=False, images_root_directory= '.',input_resolution=(1920,1080), output_resolution=(1920,1080)):
+def json_to_masks_new(filename,output_directory, side, type, is_overlay=False, images_root_directory= '.',input_resolution=(1920,1080), output_resolution=(1920,1080)):
     os.makedirs(output_directory, exist_ok=True)
 
     object_keys = {}
@@ -140,12 +246,12 @@ def json_to_masks_new(filename,output_directory,is_overlay=False, images_root_di
         image_name = datapoint["image"]["name"]
         image_path = datapoint["image"]["image_path"]
         masks_info = datapoint["annotations"]
-        full_path =os.path.join(output_directory,image_path.split('/')[0]+'/') #until the end of sequence name
+        full_path =os.path.join(output_directory, image_path.split('/')[0], type, side) #until the end of sequence name
         #print(full_path)
         os.makedirs(full_path,exist_ok= True)
         #generate_masks_stage3(image_name, image_path, masks_info, full_path) #this is for saving the same name (delete the if statemnt as well)
         #generate_masks_per_seq(image_name, image_path, masks_info, full_path)
-        generate_masks_for_image(image_name, image_path, masks_info, full_path,object_keys=object_keys,is_overlay=is_overlay,images_root_directory=images_root_directory,input_resolution=input_resolution, output_resolution=output_resolution) #this is for unique id for each object throughout the video
+        generate_masks_for_image(image_name, image_path, side, type, masks_info, full_path,object_keys=object_keys,is_overlay=is_overlay,images_root_directory=images_root_directory,input_resolution=input_resolution, output_resolution=output_resolution) #this is for unique id for each object throughout the video
     return object_keys
 
 
