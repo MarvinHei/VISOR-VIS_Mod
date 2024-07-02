@@ -5,11 +5,11 @@ Created on Wed Aug  3 15:04:58 2022
 
 @author: Ahmad Darkhalil
 """
-from vis_modified import *
+from vis_modified_all import *
 import os
 
 json_files_path = 'epick_visor/GroundTruth-SparseAnnotations/annotations/train'
-output_directory ='../EPIC_DATA/segmentations'
+output_directory ='../EPIC_DATA/segmentations_all'
 output_resolution= (854,480)
 is_overlay=False
 rgb_frames = 'epick_visor/GroundTruth-SparseAnnotations/rgb_frames/P02'
